@@ -1,106 +1,5 @@
 
 
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime, timedelta
-from pymongo import MongoClient, UpdateOne
-
-# ------------------- FUNCTION -------------------
-def aggregate_hourly_events():
-    MONGO_URI = "mongodb://mongo_etl:27017"
-    DB_NAME = "test2"
-    SOURCE_COLLECTION = "groupEventsnew"
-    TARGET_COLLECTION = "hourly_event_summary"
-
-    client = MongoClient(MONGO_URI)
-    db = client[DB_NAME]
-
-    # Pipeline: unwind events, group by hour only, push combinations
-    pipeline = [
-        {"$unwind": "$events"},
-        {"$project": {
-            "hourStart": {"$dateTrunc": {"date": {"$toDate": "$obsT"}, "unit": "hour"}},
-            "efct": "$events.efct",
-            "subj": "$events.subj"
-        }},
-        {"$group": {
-            "_id": "$hourStart",
-            "comb": {"$push": {"efct": "$efct", "subj": "$subj", "count": 1}},
-            "totalCount": {"$sum": 1}
-        }}
-    ]
-
-    results = db[SOURCE_COLLECTION].aggregate(pipeline)
-
-    bulk_updates = []
-    for doc in results:
-        hour_start = doc["_id"]
-
-        update_doc = {
-            "hourStart": hour_start,
-            "hourEnd": hour_start + timedelta(hours=1),
-            "comb": doc["comb"],
-            "totalCount": doc["totalCount"],
-            "generatedAt": datetime.utcnow()
-        }
-
-        bulk_updates.append(UpdateOne(
-            {"hourStart": hour_start},
-            {"$set": update_doc},
-            upsert=True
-        ))
-
-    if bulk_updates:
-        db[TARGET_COLLECTION].bulk_write(bulk_updates)
-
-    print(f"✅ Upserted {len(bulk_updates)} hourly summary documents (one doc per hour).")
-    client.close()
-
-
-# ------------------- DAG DEFINITION -------------------
-default_args = {
-    "owner": "airflow",
-    "depends_on_past": False,
-    "start_date": datetime(2025, 10, 1),
-}
-
-with DAG(
-    "hourly_event_summary_optimized",
-    default_args=default_args,
-    schedule_interval=None,  # manual trigger; can change to '@hourly' later
-    max_active_runs=1,
-    catchup=False,
-    tags=["mongo", "hourly", "optimized"],
-) as dag:
-
-    hourly_task = PythonOperator(
-        task_id="aggregate_hourly_events",
-        python_callable=aggregate_hourly_events,
-    )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # from airflow import DAG
 # from airflow.operators.python import PythonOperator
 # from datetime import datetime, timedelta
@@ -116,41 +15,37 @@ with DAG(
 #     client = MongoClient(MONGO_URI)
 #     db = client[DB_NAME]
 
+#     # Pipeline: unwind events, group by hour only, push combinations
 #     pipeline = [
 #         {"$unwind": "$events"},
-#         {
-#             "$group": {
-#                 "_id": {
-#                     "hourStart": {
-#                         "$dateTrunc": {"date": {"$toDate": "$obsT"}, "unit": "hour"}
-#                     },
-#                     "efct": "$events.efct",
-#                     "subj": "$events.subj"
-#                 },
-#                 "count": {"$sum": 1}
-#             }
-#         }
+#         {"$project": {
+#             "hourStart": {"$dateTrunc": {"date": {"$toDate": "$obsT"}, "unit": "hour"}},
+#             "efct": "$events.efct",
+#             "subj": "$events.subj"
+#         }},
+#         {"$group": {
+#             "_id": "$hourStart",
+#             "comb": {"$push": {"efct": "$efct", "subj": "$subj", "count": 1}},
+#             "totalCount": {"$sum": 1}
+#         }}
 #     ]
 
 #     results = db[SOURCE_COLLECTION].aggregate(pipeline)
 
 #     bulk_updates = []
 #     for doc in results:
-#         hour_start = doc["_id"]["hourStart"]
-#         efct = doc["_id"]["efct"]
-#         subj = doc["_id"]["subj"]
+#         hour_start = doc["_id"]
 
 #         update_doc = {
-#             "efct": efct,
-#             "subj": subj,
 #             "hourStart": hour_start,
 #             "hourEnd": hour_start + timedelta(hours=1),
-#             "count": int(doc["count"]),
+#             "comb": doc["comb"],
+#             "totalCount": doc["totalCount"],
 #             "generatedAt": datetime.utcnow()
 #         }
 
 #         bulk_updates.append(UpdateOne(
-#             {"efct": efct, "subj": subj, "hourStart": hour_start},
+#             {"hourStart": hour_start},
 #             {"$set": update_doc},
 #             upsert=True
 #         ))
@@ -158,7 +53,7 @@ with DAG(
 #     if bulk_updates:
 #         db[TARGET_COLLECTION].bulk_write(bulk_updates)
 
-#     print(f"✅ Upserted {len(bulk_updates)} hourly summary documents (no duplicates).")
+#     print(f"✅ Upserted {len(bulk_updates)} hourly summary documents (one doc per hour).")
 #     client.close()
 
 
@@ -182,6 +77,111 @@ with DAG(
 #         task_id="aggregate_hourly_events",
 #         python_callable=aggregate_hourly_events,
 #     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+from pymongo import MongoClient, UpdateOne
+
+# ------------------- FUNCTION -------------------
+def aggregate_hourly_events():
+    MONGO_URI = "mongodb://mongo_etl:27017"
+    DB_NAME = "test2"
+    SOURCE_COLLECTION = "groupEventsnew"
+    TARGET_COLLECTION = "hourly_event_summary"
+
+    client = MongoClient(MONGO_URI)
+    db = client[DB_NAME]
+
+    pipeline = [
+        {"$unwind": "$events"},
+        {
+            "$group": {
+                "_id": {
+                    "hourStart": {
+                        "$dateTrunc": {"date": {"$toDate": "$obsT"}, "unit": "hour"}
+                    },
+                    "efct": "$events.efct",
+                    "subj": "$events.subj"
+                },
+                "count": {"$sum": 1}
+            }
+        }
+    ]
+
+    results = db[SOURCE_COLLECTION].aggregate(pipeline)
+
+    bulk_updates = []
+    for doc in results:
+        hour_start = doc["_id"]["hourStart"]
+        efct = doc["_id"]["efct"]
+        subj = doc["_id"]["subj"]
+
+        update_doc = {
+            "efct": efct,
+            "subj": subj,
+            "hourStart": hour_start,
+            "hourEnd": hour_start + timedelta(hours=1),
+            "count": int(doc["count"]),
+            "generatedAt": datetime.utcnow()
+        }
+
+        bulk_updates.append(UpdateOne(
+            {"efct": efct, "subj": subj, "hourStart": hour_start},
+            {"$set": update_doc},
+            upsert=True
+        ))
+
+    if bulk_updates:
+        db[TARGET_COLLECTION].bulk_write(bulk_updates)
+
+    print(f"✅ Upserted {len(bulk_updates)} hourly summary documents (no duplicates).")
+    client.close()
+
+
+# ------------------- DAG DEFINITION -------------------
+default_args = {
+    "owner": "airflow",
+    "depends_on_past": False,
+    "start_date": datetime(2025, 10, 1),
+}
+
+with DAG(
+    "hourly_event_summary_optimized",
+    default_args=default_args,
+    schedule_interval=None,  # manual trigger; can change to '@hourly' later
+    max_active_runs=1,
+    catchup=False,
+    tags=["mongo", "hourly", "optimized"],
+) as dag:
+
+    hourly_task = PythonOperator(
+        task_id="aggregate_hourly_events",
+        python_callable=aggregate_hourly_events,
+    )
 
 
 
